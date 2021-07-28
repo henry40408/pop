@@ -15,7 +15,7 @@ pub struct Request {
     pub sound: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Response {
     pub status: u64,
     pub request: String,

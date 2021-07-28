@@ -12,8 +12,17 @@ fn endpoint_url() -> String {
     "https://api.pushover.net".to_string()
 }
 
+#[derive(Debug)]
+pub struct Attachment {
+    pub filename: String,
+    pub mime_type: String,
+    pub content: Vec<u8>,
+}
+
+#[derive(Default)]
 pub struct Wrapped {
     pub request: Request,
+    pub attachment: Option<Attachment>,
 }
 
 impl Wrapped {
@@ -24,6 +33,15 @@ impl Wrapped {
             .text("token", self.request.token.clone())
             .text("user", self.request.user.clone())
             .text("message", self.request.message.clone());
+
+        let parts = if let Some(ref a) = self.attachment {
+            let part = multipart::Part::bytes(a.content.clone())
+                .file_name(a.filename.clone())
+                .mime_str(&a.mime_type)?;
+            parts.part("attachment", part)
+        } else {
+            parts
+        };
 
         let url = format!("{0}/1/messages.json", endpoint_url());
         let res = client.post(url).multipart(parts).send().await?;
@@ -52,7 +70,10 @@ mod test {
             message: "message".to_string(),
             ..Default::default()
         };
-        let request = Wrapped { request: inner };
+        let request = Wrapped {
+            request: inner,
+            ..Default::default()
+        };
         let res = request.send().await?;
         assert_eq!(1, res.status);
         assert_eq!("647d2300-702c-4b38-8b2f-d56326ae460b", res.request);

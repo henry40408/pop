@@ -1,8 +1,9 @@
 [package]
 name = "pop"
 version = "0.1.0"
-authors = ["henry"]
+authors = ["Heng-Yi Wu <2316687+henry40408@users.noreply.github.com>"]
 edition = "2018"
+description = "PushOver Proxy"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,6 +11,7 @@ edition = "2018"
 anyhow = "1.0.42"
 reqwest = { version = "0.11", features = ["json", "multipart"] }
 serde = { version = "1.0", features = ["derive"] }
+structopt = "0.3.22"
 tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]

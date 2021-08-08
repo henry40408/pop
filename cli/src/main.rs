@@ -7,8 +7,7 @@ use anyhow::bail;
 use atty::Stream;
 use structopt::StructOpt;
 
-use pop::pushover::Request;
-use pop::wrapped::{Attachment, Wrapped};
+use pop::notification::Notification;
 
 #[derive(Debug, StructOpt)]
 #[structopt(about, author)]
@@ -28,24 +27,33 @@ struct Opts {
     /// Attachment to send, which is an image usually
     #[structopt(short, long, parse(from_os_str))]
     attachment: Option<PathBuf>,
+    /// Download and attach in request body
+    #[structopt(short, long)]
+    image_url: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opts: Opts = Opts::from_args();
 
-    let attachment = build_attachment(&opts)?;
-    let request = Wrapped {
-        request: Request {
-            token: opts.token.clone(),
-            user: opts.user.clone(),
-            message: opts.message.clone(),
-            ..Default::default()
-        },
-        attachment,
+    if opts.attachment.is_some() && opts.image_url.is_some() {
+        bail!("either attachment or image_url is given, not both");
+    }
+
+    let notification = Notification::new(&opts.token, &opts.user, &opts.message);
+
+    let notification = if let Some(ref image_url) = opts.image_url {
+        notification.attach_url(image_url).await?
+    } else {
+        match parse_attachment(&opts)? {
+            Some((filename, mime_type, content)) => {
+                notification.attach(filename, mime_type, content)
+            }
+            None => notification,
+        }
     };
 
-    let response = request.send().await?;
+    let response = notification.send().await?;
     if opts.verbose {
         println!("{}", serde_json::to_string(&response)?);
     }
@@ -66,7 +74,7 @@ fn read_from_stdin_or_file(opts: &Opts) -> anyhow::Result<Option<Box<dyn BufRead
     }
 }
 
-fn build_attachment(opts: &Opts) -> anyhow::Result<Option<Attachment>> {
+fn parse_attachment(opts: &Opts) -> anyhow::Result<Option<(String, String, Vec<u8>)>> {
     if let Some(mut r) = read_from_stdin_or_file(&opts)? {
         let mut content = Vec::new();
         r.read_to_end(&mut content)?;
@@ -76,19 +84,16 @@ fn build_attachment(opts: &Opts) -> anyhow::Result<Option<Attachment>> {
             None => bail!("MIME type of attachment is unknown"),
         };
 
-        let filename = match &opts.attachment {
-            Some(f) => match f.to_str() {
+        let filename = match opts.attachment {
+            Some(ref f) => match f.to_str() {
                 Some(s) => s.to_string(),
                 None => bail!("failed to extract filename from attachment"),
             },
             None => format!("file.{}", mime_type.extension()),
         };
 
-        Ok(Some(Attachment {
-            filename,
-            mime_type: mime_type.to_string(),
-            content,
-        }))
+        let mime_type = mime_type.to_string();
+        Ok(Some((filename, mime_type, content)))
     } else {
         Ok(None)
     }

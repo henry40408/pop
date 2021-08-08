@@ -2,6 +2,11 @@
 
 **P**ush**O**ver **P**roxy
 
+## Features
+
+* Compatible with [Pushover API](https://pushover.net/api)
+* Attach `image_url` in request body to send image attachment to Pushover
+
 ## Usage
 
 For help:

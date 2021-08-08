@@ -1,3 +1,4 @@
+use anyhow::bail;
 use reqwest::multipart;
 
 use crate::pushover::{Request, Response};
@@ -20,12 +21,55 @@ pub struct Attachment {
 }
 
 #[derive(Default)]
-pub struct Wrapped {
+pub struct Notification {
     pub request: Request,
     pub attachment: Option<Attachment>,
 }
 
-impl Wrapped {
+impl Notification {
+    pub fn new(token: &str, user: &str, message: &str) -> Self {
+        Self {
+            request: Request {
+                token: token.to_string(),
+                user: user.to_string(),
+                message: message.to_string(),
+                ..Default::default()
+            },
+            attachment: None,
+        }
+    }
+
+    pub fn attach<S: ToString>(self, filename: S, mime_type: S, content: Vec<u8>) -> Self {
+        Self {
+            request: self.request,
+            attachment: Some(Attachment {
+                filename: filename.to_string(),
+                mime_type: mime_type.to_string(),
+                content,
+            }),
+        }
+    }
+
+    pub async fn attach_url(self, url: &str) -> anyhow::Result<Self> {
+        let res = reqwest::get(url).await?;
+        let content = res.bytes().await?.to_vec();
+
+        let mime_type = match infer::get(&content) {
+            Some(m) => m,
+            None => bail!("MIME type of {} is unknown", url),
+        };
+        let filename = format!("file.{}", mime_type.extension());
+
+        Ok(Self {
+            request: self.request,
+            attachment: Some(Attachment {
+                filename,
+                mime_type: mime_type.to_string(),
+                content,
+            }),
+        })
+    }
+
     pub async fn send(&self) -> anyhow::Result<Response> {
         let client = reqwest::Client::new();
 
@@ -54,8 +98,8 @@ impl Wrapped {
 mod test {
     use mockito::mock;
 
+    use crate::notification::Notification;
     use crate::pushover::Request;
-    use crate::wrapped::Wrapped;
 
     #[tokio::test]
     async fn test_send() -> anyhow::Result<()> {
@@ -70,7 +114,7 @@ mod test {
             message: "message".to_string(),
             ..Default::default()
         };
-        let request = Wrapped {
+        let request = Notification {
             request: inner,
             ..Default::default()
         };

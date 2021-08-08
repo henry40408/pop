@@ -7,8 +7,7 @@ use anyhow::bail;
 use atty::Stream;
 use structopt::StructOpt;
 
-use pop::pushover::Request;
-use pop::wrapped::{Attachment, Wrapped};
+use pop::notification::Notification;
 
 #[derive(Debug, StructOpt)]
 #[structopt(about, author)]
@@ -41,45 +40,25 @@ async fn main() -> anyhow::Result<()> {
         bail!("either attachment or image_url is given, not both");
     }
 
-    let attachment = if let Some(image_url) = opts.image_url {
-        Some(parse_image_url(&image_url).await?)
+    let notification = Notification::new(&opts.token, &opts.user, &opts.message);
+
+    let notification = if let Some(ref image_url) = opts.image_url {
+        notification.attach_url(image_url).await?
     } else {
-        parse_attachment(&opts)?
+        match parse_attachment(&opts)? {
+            Some((filename, mime_type, content)) => {
+                notification.attach(filename, mime_type, content)
+            }
+            None => notification,
+        }
     };
 
-    let request = Wrapped {
-        request: Request {
-            token: opts.token.clone(),
-            user: opts.user.clone(),
-            message: opts.message.clone(),
-            ..Default::default()
-        },
-        attachment,
-    };
-
-    let response = request.send().await?;
+    let response = notification.send().await?;
     if opts.verbose {
         println!("{}", serde_json::to_string(&response)?);
     }
 
     Ok(())
-}
-
-async fn parse_image_url(image_url: &str) -> anyhow::Result<Attachment> {
-    let res = reqwest::get(image_url).await?;
-    let content = res.bytes().await?.to_vec();
-
-    let mime_type = match infer::get(&content) {
-        Some(m) => m,
-        None => bail!("MIME type of {} is unknown", image_url),
-    };
-    let filename = format!("file.{}", mime_type.extension());
-
-    Ok(Attachment {
-        filename,
-        mime_type: mime_type.to_string(),
-        content,
-    })
 }
 
 fn read_from_stdin_or_file(opts: &Opts) -> anyhow::Result<Option<Box<dyn BufRead>>> {
@@ -95,7 +74,7 @@ fn read_from_stdin_or_file(opts: &Opts) -> anyhow::Result<Option<Box<dyn BufRead
     }
 }
 
-fn parse_attachment(opts: &Opts) -> anyhow::Result<Option<Attachment>> {
+fn parse_attachment(opts: &Opts) -> anyhow::Result<Option<(String, String, Vec<u8>)>> {
     if let Some(mut r) = read_from_stdin_or_file(&opts)? {
         let mut content = Vec::new();
         r.read_to_end(&mut content)?;
@@ -113,11 +92,8 @@ fn parse_attachment(opts: &Opts) -> anyhow::Result<Option<Attachment>> {
             None => format!("file.{}", mime_type.extension()),
         };
 
-        Ok(Some(Attachment {
-            filename,
-            mime_type: mime_type.to_string(),
-            content,
-        }))
+        let mime_type = mime_type.to_string();
+        Ok(Some((filename, mime_type, content)))
     } else {
         Ok(None)
     }

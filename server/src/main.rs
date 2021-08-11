@@ -1,12 +1,11 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
-
-use log::{info, warn};
+#[forbid(unsafe_code)]
+use actix_web::{middleware, post, web, App, HttpRequest, HttpResponse, HttpServer};
+use env_logger::Env;
+use log::warn;
 use serde::{Deserialize, Serialize};
-use std::env;
 use structopt::StructOpt;
-use warp::http::StatusCode;
-use warp::Filter;
+
+use pop::notification::Notification;
 
 #[derive(StructOpt)]
 #[structopt(about, author)]
@@ -23,13 +22,10 @@ struct Opts {
     /// host and port to bind
     #[structopt(short, long, env = "BIND", default_value = "127.0.0.1:3000")]
     bind: String,
-    /// debug mode
-    #[structopt(long)]
-    debug: bool,
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
-struct Notification {
+struct Message {
     device: Option<String>,
     title: Option<String>,
     message: String,
@@ -42,79 +38,92 @@ struct Notification {
     image_url: Option<String>,
 }
 
-#[derive(Serialize)]
-struct ErrorMessage {
-    status: u16,
+struct AppState {
+    authorization: Option<String>,
+    token: String,
+    user: String,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let opts: Arc<Opts> = Arc::new(Opts::from_args());
+#[derive(Serialize)]
+struct ErrorMessage {
+    message: String,
+}
 
-    if env::var_os("RUST_LOG").is_none() {
-        if opts.debug {
-            env::set_var("RUST_LOG", "pops=debug");
+fn get_authorization(req: &HttpRequest) -> Option<&str> {
+    req.headers().get("authorization")?.to_str().ok()
+}
+
+#[post("/v1/messages")]
+async fn messages(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    message: web::Json<Message>,
+) -> HttpResponse {
+    if let Some(ref expected) = data.authorization {
+        if let Some(actual) = get_authorization(&req) {
+            if expected != actual {
+                // authorization and header are present but not equal
+                return HttpResponse::BadRequest().json(&ErrorMessage {
+                    message: format!("unauthorized"),
+                });
+            } else {
+                // authorization and header are present and equal
+            }
         } else {
-            env::set_var("RUST_LOG", "pops=info");
+            // authorization is present but header is absent
+            return HttpResponse::BadRequest().json(&ErrorMessage {
+                message: format!("unauthorized"),
+            });
         }
+    } else {
+        // authorization is absent
     }
 
-    pretty_env_logger::init();
+    let request = Notification::new(&data.token, &data.user, &message.message);
+    let request = if let Some(ref url) = message.image_url {
+        match request.attach_url(url).await {
+            Ok(r) => r,
+            Err(e) => return HttpResponse::BadRequest().body(format!("{:?}", e)),
+        }
+    } else {
+        request
+    };
 
+    let response = match request.send().await {
+        Ok(r) => r,
+        Err(e) => return HttpResponse::BadRequest().body(format!("{:?}", e)),
+    };
+    if 1 == response.status {
+        HttpResponse::Ok().json(&response)
+    } else {
+        HttpResponse::BadRequest().json(&response)
+    }
+}
+
+#[actix_web::main]
+async fn main() -> anyhow::Result<()> {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+
+    let opts: Opts = Opts::from_args();
     if opts.authorization.is_none() {
         warn!("no authorization set, server is vulnerable");
     }
 
-    let opts2 = opts.clone();
-    let messages = warp::path!("v1" / "messages")
-        .and(warp::post())
-        .and(warp::body::content_length_limit(16 * 1_024))
-        .and(warp::body::json())
-        .and(warp::header::optional::<String>("authorization"))
-        .map(
-            move |notification: Notification, authorization: Option<String>| {
-                if let Some(ref a) = opts2.authorization {
-                    // authorization is expected
-                    if let Some(ref b) = authorization {
-                        // authorization is given
-                        if b != a {
-                            // authorization does not match
-                            return warp::reply::with_status(
-                                warp::reply::json(&ErrorMessage {
-                                    status: StatusCode::BAD_REQUEST.as_u16(),
-                                }),
-                                StatusCode::BAD_REQUEST,
-                            );
-                        }
-                    } else {
-                        // authorization is not given
-                        return warp::reply::with_status(
-                            warp::reply::json(&ErrorMessage {
-                                status: StatusCode::BAD_REQUEST.as_u16(),
-                            }),
-                            StatusCode::BAD_REQUEST,
-                        );
-                    }
-                }
+    let data = web::Data::new(AppState {
+        authorization: opts.authorization,
+        token: opts.token,
+        user: opts.user,
+    });
 
-                warp::reply::with_status(
-                    warp::reply::json(&Message {
-                        message: "Hello, world!".into(),
-                    }),
-                    StatusCode::OK,
-                )
-            },
-        )
-        .with(warp::log::log("pops"));
-
-    let bind: SocketAddr = opts.bind.parse()?;
-    info!("server is running on {}", &opts.bind);
-    warp::serve(messages).run(bind).await;
+    HttpServer::new(move || {
+        App::new()
+            .app_data(data.clone())
+            .wrap(middleware::Logger::default())
+            .service(messages)
+    })
+    .bind(&opts.bind)?
+    .run()
+    .await?;
 
     Ok(())
-}
-
-#[derive(Serialize)]
-struct Message {
-    message: String,
 }

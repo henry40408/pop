@@ -20,6 +20,16 @@ pub struct Attachment {
     pub content: Vec<u8>,
 }
 
+impl Attachment {
+    pub fn new<S: ToString>(filename: S, mime_type: S, content: Vec<u8>) -> Self {
+        Attachment {
+            filename: filename.to_string(),
+            mime_type: mime_type.to_string(),
+            content,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Notification {
     pub request: Request,
@@ -39,14 +49,10 @@ impl Notification {
         }
     }
 
-    pub fn attach<S: ToString>(self, filename: S, mime_type: S, content: Vec<u8>) -> Self {
+    pub fn attach(self, attachment: Attachment) -> Self {
         Self {
             request: self.request,
-            attachment: Some(Attachment {
-                filename: filename.to_string(),
-                mime_type: mime_type.to_string(),
-                content,
-            }),
+            attachment: Some(attachment),
         }
     }
 
@@ -60,13 +66,10 @@ impl Notification {
         };
         let filename = format!("file.{}", mime_type.extension());
 
+        let attachment = Attachment::new(filename, mime_type.to_string(), content);
         Ok(Self {
             request: self.request,
-            attachment: Some(Attachment {
-                filename,
-                mime_type: mime_type.to_string(),
-                content,
-            }),
+            attachment: Some(attachment),
         })
     }
 
@@ -78,53 +81,15 @@ impl Notification {
             .text("user", self.request.user.clone())
             .text("message", self.request.message.clone());
 
-        let parts = if let Some(ref d) = self.request.device {
-            parts.text("device", d.clone())
-        } else {
-            parts
-        };
-
-        let parts = if let Some(ref t) = self.request.title {
-            parts.text("title", t.to_string())
-        } else {
-            parts
-        };
-
-        let parts = if let Some(ref h) = self.request.html {
-            parts.text("html", h.to_string())
-        } else {
-            parts
-        };
-
-        let parts = if let Some(ref t) = self.request.timestamp {
-            parts.text("timestamp", t.to_string())
-        } else {
-            parts
-        };
-
-        let parts = if let Some(ref p) = self.request.priority {
-            parts.text("priority", p.to_string())
-        } else {
-            parts
-        };
-
-        let parts = if let Some(ref u) = self.request.url {
-            parts.text("url", u.to_string())
-        } else {
-            parts
-        };
-
-        let parts = if let Some(ref u) = self.request.url_title {
-            parts.text("url_title", u.to_string())
-        } else {
-            parts
-        };
-
-        let parts = if let Some(ref s) = self.request.sound {
-            parts.text("sound", s.to_string())
-        } else {
-            parts
-        };
+        let r = &self.request;
+        let parts = Self::append_part(parts, "device", r.device.as_ref());
+        let parts = Self::append_part(parts, "title", r.title.as_ref());
+        let parts = Self::append_part(parts, "html", r.html.as_ref());
+        let parts = Self::append_part(parts, "timestamp", r.timestamp.as_ref());
+        let parts = Self::append_part(parts, "priority", r.priority.as_ref());
+        let parts = Self::append_part(parts, "url", r.url.as_ref());
+        let parts = Self::append_part(parts, "url_title", r.url_title.as_ref());
+        let parts = Self::append_part(parts, "sound", r.sound.as_ref());
 
         let parts = if let Some(ref a) = self.attachment {
             let part = multipart::Part::bytes(a.content.clone())
@@ -139,6 +104,18 @@ impl Notification {
         let res = client.post(url).multipart(parts).send().await?;
         let res: Response = res.json::<Response>().await?;
         Ok(res)
+    }
+
+    fn append_part<T: ToString>(
+        parts: multipart::Form,
+        name: &'static str,
+        value: Option<&T>,
+    ) -> multipart::Form {
+        if let Some(v) = value {
+            parts.text(name, v.to_string())
+        } else {
+            parts
+        }
     }
 }
 

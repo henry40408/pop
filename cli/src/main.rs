@@ -9,7 +9,7 @@ use anyhow::bail;
 use atty::Stream;
 use structopt::StructOpt;
 
-use pop::notification::Notification;
+use pop::notification::{Attachment, Notification};
 
 #[derive(Debug, StructOpt)]
 #[structopt(about, author)]
@@ -49,7 +49,8 @@ async fn main() -> anyhow::Result<()> {
     } else {
         match parse_attachment(&opts)? {
             Some((filename, mime_type, content)) => {
-                notification.attach(filename, mime_type, content)
+                let attachment = Attachment::new(filename, mime_type, content);
+                notification.attach(attachment)
             }
             None => notification,
         }

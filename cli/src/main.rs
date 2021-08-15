@@ -1,4 +1,5 @@
-#[forbid(unsafe_code)]
+#![forbid(unsafe_code)]
+
 use std::fs;
 use std::io;
 use std::io::{BufRead, BufReader, Read};
@@ -8,7 +9,7 @@ use anyhow::bail;
 use atty::Stream;
 use structopt::StructOpt;
 
-use pop::notification::Notification;
+use pop::notification::{Attachment, Notification};
 
 #[derive(Debug, StructOpt)]
 #[structopt(about, author)]
@@ -48,7 +49,8 @@ async fn main() -> anyhow::Result<()> {
     } else {
         match parse_attachment(&opts)? {
             Some((filename, mime_type, content)) => {
-                notification.attach(filename, mime_type, content)
+                let attachment = Attachment::new(filename, mime_type, content);
+                notification.attach(attachment)
             }
             None => notification,
         }
@@ -76,7 +78,7 @@ fn read_from_stdin_or_file(opts: &Opts) -> anyhow::Result<Option<Box<dyn BufRead
 }
 
 fn parse_attachment(opts: &Opts) -> anyhow::Result<Option<(String, String, Vec<u8>)>> {
-    if let Some(mut r) = read_from_stdin_or_file(&opts)? {
+    if let Some(mut r) = read_from_stdin_or_file(opts)? {
         let mut content = Vec::new();
         r.read_to_end(&mut content)?;
 

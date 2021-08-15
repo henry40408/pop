@@ -1,3 +1,4 @@
-#[forbid(unsafe_code)]
+#![forbid(unsafe_code)]
+
 pub mod notification;
 pub mod pushover;

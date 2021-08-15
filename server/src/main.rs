@@ -1,4 +1,5 @@
-#[forbid(unsafe_code)]
+#![forbid(unsafe_code)]
+
 use actix_web::{middleware, post, web, App, HttpRequest, HttpResponse, HttpServer};
 use env_logger::Env;
 use log::warn;
@@ -29,13 +30,34 @@ struct Message {
     device: Option<String>,
     title: Option<String>,
     message: String,
-    html: Option<bool>,
+    html: Option<u8>,
     timestamp: Option<u64>,
     priority: Option<u8>,
     url: Option<String>,
     url_title: Option<String>,
     sound: Option<String>,
     image_url: Option<String>,
+}
+
+impl Message {
+    async fn to_notification(&self, token: &str, user: &str) -> anyhow::Result<Notification> {
+        let mut n = Notification::new(token, user, &self.message);
+
+        n.request.device = self.device.clone();
+        n.request.title = self.title.clone();
+        n.request.html = self.html;
+        n.request.timestamp = self.timestamp;
+        n.request.priority = self.priority;
+        n.request.url = self.url.clone();
+        n.request.url_title = self.url_title.clone();
+        n.request.sound = self.sound.clone();
+
+        if let Some(ref url) = self.image_url {
+            n.attach_url(url).await
+        } else {
+            Ok(n)
+        }
+    }
 }
 
 struct AppState {
@@ -64,7 +86,7 @@ async fn messages(
             if expected != actual {
                 // authorization and header are present but not equal
                 return HttpResponse::BadRequest().json(&ErrorMessage {
-                    message: format!("unauthorized"),
+                    message: "unauthorized".to_string(),
                 });
             } else {
                 // authorization and header are present and equal
@@ -72,27 +94,23 @@ async fn messages(
         } else {
             // authorization is present but header is absent
             return HttpResponse::BadRequest().json(&ErrorMessage {
-                message: format!("unauthorized"),
+                message: "unauthorized".to_string(),
             });
         }
     } else {
         // authorization is absent
     }
 
-    let request = Notification::new(&data.token, &data.user, &message.message);
-    let request = if let Some(ref url) = message.image_url {
-        match request.attach_url(url).await {
-            Ok(r) => r,
-            Err(e) => return HttpResponse::BadRequest().body(format!("{:?}", e)),
-        }
-    } else {
-        request
+    let notification = match message.to_notification(&data.token, &data.user).await {
+        Ok(n) => n,
+        Err(e) => return HttpResponse::BadRequest().body(format!("{:?}", e)),
     };
 
-    let response = match request.send().await {
+    let response = match notification.send().await {
         Ok(r) => r,
         Err(e) => return HttpResponse::BadRequest().body(format!("{:?}", e)),
     };
+
     if 1 == response.status {
         HttpResponse::Ok().json(&response)
     } else {

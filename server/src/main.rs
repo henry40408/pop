@@ -30,7 +30,7 @@ struct Message {
     device: Option<String>,
     title: Option<String>,
     message: String,
-    html: Option<bool>,
+    html: Option<u8>,
     timestamp: Option<u64>,
     priority: Option<u8>,
     url: Option<String>,

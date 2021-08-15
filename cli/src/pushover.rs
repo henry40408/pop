@@ -7,7 +7,7 @@ pub struct Request {
     pub device: Option<String>,
     pub title: Option<String>,
     pub message: String,
-    pub html: Option<bool>,
+    pub html: Option<u8>,
     pub timestamp: Option<u64>,
     pub priority: Option<u8>,
     pub url: Option<String>,

@@ -1,4 +1,5 @@
-#[forbid(unsafe_code)]
+#![forbid(unsafe_code)]
+
 use std::fs;
 use std::io;
 use std::io::{BufRead, BufReader, Read};
@@ -76,7 +77,7 @@ fn read_from_stdin_or_file(opts: &Opts) -> anyhow::Result<Option<Box<dyn BufRead
 }
 
 fn parse_attachment(opts: &Opts) -> anyhow::Result<Option<(String, String, Vec<u8>)>> {
-    if let Some(mut r) = read_from_stdin_or_file(&opts)? {
+    if let Some(mut r) = read_from_stdin_or_file(opts)? {
         let mut content = Vec::new();
         r.read_to_end(&mut content)?;
 

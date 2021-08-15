@@ -1,5 +1,6 @@
-#[forbid(unsafe_code)]
-use actix_web::{App, HttpRequest, HttpResponse, HttpServer, middleware, post, web};
+#![forbid(unsafe_code)]
+
+use actix_web::{middleware, post, web, App, HttpRequest, HttpResponse, HttpServer};
 use env_logger::Env;
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -85,7 +86,7 @@ async fn messages(
             if expected != actual {
                 // authorization and header are present but not equal
                 return HttpResponse::BadRequest().json(&ErrorMessage {
-                    message: format!("unauthorized"),
+                    message: "unauthorized".to_string(),
                 });
             } else {
                 // authorization and header are present and equal
@@ -93,7 +94,7 @@ async fn messages(
         } else {
             // authorization is present but header is absent
             return HttpResponse::BadRequest().json(&ErrorMessage {
-                message: format!("unauthorized"),
+                message: "unauthorized".to_string(),
             });
         }
     } else {
